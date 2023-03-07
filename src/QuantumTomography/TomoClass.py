@@ -4,6 +4,7 @@ from .TomoDisplay import floatToString
 from .TomoClassHelpers import *
 from .Utilities import ConfDict,getValidFileName
 import numpy as np
+import collections.abc
 from scipy.optimize import leastsq,minimize
 import warnings
 
@@ -22,7 +23,7 @@ https://quantumtomo.web.illinois.edu/Doc/"""
           it is advised to create multiple Tomography objects.
 
     See Also
-     ------ 
+     ------
     importEval;importConf;importData
     """
 class Tomography():
@@ -94,7 +95,7 @@ class Tomography():
     ----------
     setting : string
         The setting you want to update.
-        Possible values are ['NQubits', 'NDetectors', 'Crosstalk', 'Bellstate', 'DoDriftCorrection', 
+        Possible values are ['NQubits', 'NDetectors', 'Crosstalk', 'Bellstate', 'DoDriftCorrection',
         'DoAccidentalCorrection', 'DoErrorEstimation', 'Window', 'Efficiency', 'RhoStart', 'Beta','ftol','xtol','gtol'
         'maxfev']
     val : ndarray, int, or string
@@ -313,7 +314,7 @@ class Tomography():
         The starting predicted state.
     coincidences : ndarray shape = (Number of measurements, NDetectors**NQubits)
         The counts of the tomography.
-    measurements_densities : ndarray with shape = (NDetectors*number of measurements,2^numQubits, 2^numQubits) 
+    measurements_densities : ndarray with shape = (NDetectors*number of measurements,2^numQubits, 2^numQubits)
         The measurements of the tomography in density matrix form.
     accidentals : 1darray with length = number of measurements or length = number of measurements * 2^numQubits for 2 det/qubit
         The accidental values of the tomography. Used for accidental correction.
@@ -371,7 +372,7 @@ class Tomography():
         The starting predicted state.
     coincidences : ndarray shape = (Number of measurements, NDetectors**NQubits)
         The counts of the tomography.
-    measurements_densities : ndarray with shape = (NDetectors*number of measurements,2^numQubits, 2^numQubits) 
+    measurements_densities : ndarray with shape = (NDetectors*number of measurements,2^numQubits, 2^numQubits)
         The measurements of the tomography in density matrix form.
     accidentals : 1darray with length = number of measurements or length = number of measurements * 2^numQubits for 2 det/qubit
         The accidental values of the tomography. Used for accidental correction.
@@ -435,7 +436,7 @@ class Tomography():
         The starting predicted state.
     coincidences : ndarray shape = (Number of measurements, NDetectors**NQubits)
         The counts of the tomography.
-    measurements : ndarray with shape = (NDetectors*number of measurements,2^numQubits, 2^numQubits) 
+    measurements : ndarray with shape = (NDetectors*number of measurements,2^numQubits, 2^numQubits)
         The measurements of the tomography in density matrix form.
     accidentals : 1darray with length = number of measurements or length = number of measurements * 2^numQubits for 2 det/qubit
         The accidental values of the tomography. Used for accidental correction.
@@ -716,7 +717,7 @@ class Tomography():
     ----------
     coincidences : ndarray shape = (Number of measurements, NDetectors**NQubits)
         The counts of the tomography.
-    measurements : ndarray with shape = (NDetectors*number of measurements,2^numQubits) 
+    measurements : ndarray with shape = (NDetectors*number of measurements,2^numQubits)
         The measurements of the tomography in pure state form.
     overall_norms : 1darray with length = number of measurements or length = number of measurements * 2^numQubits for 2 det/qubit
         The relative weights of each measurment. Used for drift correction.
@@ -775,9 +776,9 @@ class Tomography():
     -------
     coincidences : ndarray shape = (Number of measurements, NDetectors**NQubits)
         The counts of the tomography.
-    measurements_densities : ndarray with shape = (NDetectors*number of measurements,2^numQubits, 2^numQubits) 
+    measurements_densities : ndarray with shape = (NDetectors*number of measurements,2^numQubits, 2^numQubits)
         The measurements of the tomography in density matrix form.
-    measurements_pures : ndarray with shape = (NDetectors*number of measurements, 2^numQubits) 
+    measurements_pures : ndarray with shape = (NDetectors*number of measurements, 2^numQubits)
         The measurements of the tomography in pure state form.
     acc : 1darray with length = number of measurements or length = number of measurements * 2^numQubits for 2 det/qubit
         The accidental values of the tomography. Used for accidental correction.
@@ -898,7 +899,7 @@ class Tomography():
     intensities : 1darray with length = number of measurements
         Relative pump power (arb. units) during measurement; used for drift correction. Default will be an array of ones
     """
-    def buildTomoInput(self, measurements, counts, crosstalk, efficiency,time,singles,window, error):
+    def buildTomoInput(self, measurements, counts, crosstalk, efficiency, time,singles,window, error):
         ################
         # measurements #
         ################
@@ -929,8 +930,10 @@ class Tomography():
         ##############
         # efficiency #
         ##############
-        if((not isinstance(efficiency, int)) and (len(efficiency.shape) !=1 or efficiency.shape[0] != self.conf['NQubits']*2)):
-            raise ValueError("Invalid efficiency array. Length should be NQubits*2")
+        if isinstance(efficiency, collections.abc.Sequence):
+            efficiency = np.array(efficiency)
+            if len(efficiency) != self.conf['NQubits']*2:
+                raise ValueError("Invalid efficiency array. Length should be NQubits*2")
         else:
             self.conf['Efficiency'] = efficiency
 
@@ -980,8 +983,12 @@ class Tomography():
                 raise ValueError("Invalid window array")
         else:
             time = np.ones(measurements.shape[0])
-            singles = np.zeros((measurements.shape[0],self.conf["NQubits"]))
+            # singles = np.zeros((measurements.shape[0], self.conf["NQubits"]))
             self.conf['Window'] = window
+            if self.conf['NDetectors'] == 1:
+                singles = np.zeros((measurements.shape[0], self.conf['NQubits']))
+            elif self.conf['NDetectors'] == 2:
+                singles = np.zeros((measurements.shape[0], 2 * self.conf["NQubits"]))
 
 
         #############
@@ -1004,6 +1011,7 @@ class Tomography():
         ##############
         # Here we build the tomo_input matrix and then return this to be fed to StateTomography_Matrix
         n_qubit = self.conf['NQubits']
+        global tomo_input
         if (self.conf['NDetectors'] == 1):
             tomo_input = np.zeros((measurements.shape[0], 3 * n_qubit + 2), dtype=complex)
             # times
@@ -1051,10 +1059,11 @@ class Tomography():
         elif self.conf['NDetectors'] == 2:
             try:
                 eff = np.array(self.conf['Efficiency'],dtype=float)
-                if isinstance(eff,int):
+                if not eff.shape:
                     eff = np.ones(self.getNumCoinc())
-                if len(eff.shape) != 1 or len(eff) != self.getNumCoinc():
-                    raise
+                # if isinstance(eff,int):
+                elif len(eff) != self.getNumCoinc():
+                        raise
             except:
                 raise ValueError('Invalid Conf settings. Efficiency should have length ' +str(self.getNumCoinc()) + " with the given settings.")
         elif self.conf['NDetectors'] == 1:
@@ -1171,7 +1180,7 @@ class Tomography():
     numBits : int
         number of qubits you want for each measurement. Default will use the number of qubits in the current configurations.
     numDet : 1 or 2
-        Number of detectors for each measurement Default will use the number of qubits in the current configurations.   
+        Number of detectors for each measurement Default will use the number of qubits in the current configurations.
     """
     def getStandardBasis(self, numBits = -1,numDet = -1):
         # check if numBits is an int
@@ -1218,7 +1227,7 @@ class Tomography():
     numBits : int
         number of qubits you want for each measurement. Default will use the number of qubits in the current configurations.
     numDet : 1 or 2
-        Number of detectors for each measurement Default will use the number of qubits in the current configurations.   
+        Number of detectors for each measurement Default will use the number of qubits in the current configurations.
 
     Returns
     -------
@@ -1416,7 +1425,7 @@ class Tomography():
         The file name you want the data saved to.
 
     See Also
-     ------ 
+     ------
         importEval
     """
     def exportToEval(self, filePath="pythonEval.txt"):
@@ -1475,7 +1484,7 @@ class Tomography():
         The file name you want the data saved to.
 
     See Also
-     ------ 
+     ------
         exportToData;importConf;importData
     """
     def exportToConf(self, filePath="pythonConf.txt"):
@@ -1516,7 +1525,7 @@ class Tomography():
          The file name you want the data saved to.
 
      See Also
-      ------ 
+      ------
          exportToConf;importConf;importData
      """
     def exportToData(self, filePath="pythonData.txt"):
@@ -1550,7 +1559,7 @@ class Tomography():
 
     '''
     exportToConf_web(filePath)
-    Desc: Exports the conf data to the specified file path. 
+    Desc: Exports the conf data to the specified file path.
     You can run this tomography on our tomography interface at http://tomography.web.engr.illinois.edu/TomographyDemo.php
     THIS IS A WORK IN PROGRESS.
 
@@ -1560,7 +1569,7 @@ class Tomography():
         The file name you want the data saved to.
 
     See Also
-     ------ 
+     ------
         exportToData_web
     '''
     def exportToConf_web(self, filePath="Config_web.txt"):
@@ -1601,17 +1610,17 @@ class Tomography():
 
     '''
     exportToData_web(filePath)
-    Desc: Exports the tomo_input matrix data to the specified file path. 
+    Desc: Exports the tomo_input matrix data to the specified file path.
     You can run this tomography on our tomography interface at http://tomography.web.engr.illinois.edu/TomographyDemo.php
     THIS IS A WORK IN PROGRESS.
-    
+
     Parameters
     ----------
     filePath : str (optional)
         The file name you want the data saved to.
 
     See Also
-     ------ 
+     ------
         exportToConf_web
     '''
     # def exportToData_web(self, filePath="pythonData.txt"):
